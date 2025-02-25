@@ -1,0 +1,63 @@
+from crewai import Crew, Process
+from typing import Dict, Any, Optional
+
+from app.backend.agents.research_agent import ResearchAgent
+from app.backend.agents.metrics_agent import MetricsAgent
+from app.backend.agents.summarizer_agent import SummarizerAgent
+
+class WorkflowManager:
+    def __init__(self):
+        self.metrics_agent = MetricsAgent()
+        self.research_agent = ResearchAgent()
+        self.summarizer_agent = SummarizerAgent()
+    
+    def execute_vtk_workflow(self, mesh_data: Dict[str, Any], question: str) -> str:
+        """
+        Execute workflow for VTK file with question
+        """
+        # First get metrics
+        metrics = self.metrics_agent.analyze_vtk_metrics(mesh_data)
+        
+        # Create tasks with proper context flow
+        metrics_task = self.metrics_agent.create_metrics_task(mesh_data, question)
+        research_task = self.research_agent.create_vtk_research_task(metrics, question, context=[metrics_task])
+        summary_task = self.summarizer_agent.create_summary_task(question, context=[metrics_task, research_task])
+        
+        # Create crew with tasks and task dependencies
+        crew = Crew(
+            agents=[
+                self.metrics_agent.get_agent(),
+                self.research_agent.get_agent(),
+                self.summarizer_agent.get_agent()
+            ],
+            tasks=[metrics_task, research_task, summary_task],
+            process=Process.sequential,
+            verbose=True  # Enable detailed logging
+        )
+        
+        # Execute the workflow
+        result = crew.kickoff()
+        return result
+    
+    def execute_text_workflow(self, question: str) -> str:
+        """
+        Execute workflow for textual question only
+        """
+        # Create tasks with proper context
+        research_task = self.research_agent.create_text_research_task(question)
+        summary_task = self.summarizer_agent.create_summary_task(question,context=[research_task])  # Pass question to summarizer
+        
+        # Create crew with tasks
+        crew = Crew(
+            agents=[
+                self.research_agent.get_agent(),
+                self.summarizer_agent.get_agent()
+            ],
+            tasks=[research_task, summary_task],
+            process=Process.sequential,
+            verbose=True  # Enable detailed logging
+        )
+        
+        # Execute the workflow
+        result = crew.kickoff()
+        return result 
